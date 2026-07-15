@@ -116,20 +116,12 @@
   }
   .btn-secondary:hover { background: rgba(28,51,43,0.05); border-color: #1C332B; }
 
-  .btn-route {
-    background: #FBE6DA;
-    color: #B84E1B;
-    font-weight: 600;
-    transition: background-color 0.15s ease;
-  }
-  .btn-route:hover { background: #f3d3bb; }
-
-  input[type="text"]:focus, button:focus-visible, .btn-route:focus-visible {
+  input[type="text"]:focus, button:focus-visible {
     outline: 2px solid #1E7F78;
     outline-offset: 2px;
   }
 
-  #main-map, #bird-map { z-index: 0; }
+  #main-map { z-index: 0; }
   .leaflet-container { font-family: 'Inter', sans-serif; background: #d9e4dc; }
 
   .sun-marker { filter: drop-shadow(0 0 4px rgba(226,103,42,0.7)); }
@@ -147,15 +139,6 @@
   .fade-in { animation: fadeIn 0.4s ease both; }
   @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
 
-  table.bird-table th {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.68rem;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: #5B6B63;
-  }
-  table.bird-table tbody tr:hover { background: rgba(30,127,120,0.05); }
-
   ::-webkit-scrollbar { width: 8px; height: 8px; }
   ::-webkit-scrollbar-thumb { background: rgba(28,51,43,0.25); border-radius: 4px; }
   ::-webkit-scrollbar-track { background: transparent; }
@@ -163,6 +146,14 @@
   .search-results-list {
     box-shadow: 0 8px 20px rgba(28,51,43,0.15);
   }
+
+  /* Weather chart: shorter on phones so it doesn't force excessive scrolling, taller on larger screens for readability. */
+  .chart-holder { height: 280px; }
+  @media (min-width: 640px) { .chart-holder { height: 340px; } }
+  @media (min-width: 1024px) { .chart-holder { height: 380px; } }
+
+  /* Prevent any stray horizontal scroll on narrow viewports. */
+  body { overflow-x: hidden; }
 </style>
 </head>
 
@@ -174,7 +165,7 @@
        live "specimen tag" showing the currently selected coordinates.
   ============================================================= -->
   <header class="bg-[#1C332B] text-[#FBFAF4]">
-    <div class="max-w-7xl mx-auto px-5 sm:px-8 py-8 flex flex-col sm:flex-row sm:items-end sm:justify-between gap-6">
+    <div class="max-w-7xl mx-auto px-4 sm:px-8 py-6 sm:py-8 flex flex-col sm:flex-row sm:items-end sm:justify-between gap-5 sm:gap-6">
       <div class="flex items-start gap-4">
         <!-- Kingfisher signature icon (line art, teal/rust) -->
         <svg width="52" height="52" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" class="flex-shrink-0 mt-1">
@@ -185,42 +176,42 @@
           <path d="M6 40 C 2 44, 2 50, 6 54" stroke="#E2672A" stroke-width="1.6" fill="none" stroke-linecap="round"/>
         </svg>
         <div>
-          <h1 class="font-display text-3xl sm:text-4xl font-semibold tracking-tight">Veldkompas</h1>
-          <p class="text-[#9FC9C5] text-sm sm:text-base mt-1 max-w-md">Weer, getij, waarnemingen en zonnebaan voor elke plek in Nederland — kies een locatie om te beginnen.</p>
+          <h1 class="font-display text-2xl sm:text-3xl md:text-4xl font-semibold tracking-tight">Veldkompas</h1>
+          <p class="text-[#9FC9C5] text-sm sm:text-base mt-1 max-w-md">Weer, getij en zonnebaan voor elke plek in Nederland — kies een locatie om te beginnen.</p>
         </div>
       </div>
-      <div id="location-tag" class="field-tag !top-0 !ml-0 self-start sm:self-auto whitespace-nowrap">
+      <div id="location-tag" class="field-tag !top-0 !ml-0 self-start sm:self-auto whitespace-normal break-words max-w-full">
         geen locatie gekozen
       </div>
     </div>
   </header>
 
-  <main class="max-w-7xl mx-auto px-5 sm:px-8 mt-8 space-y-10">
+  <main class="max-w-7xl mx-auto px-4 sm:px-8 mt-6 sm:mt-8 space-y-6 sm:space-y-10">
 
     <!-- ============================================================
          LOCATION CONTROLS + MAIN MAP
     ============================================================= -->
     <section class="panel !pt-6 relative">
-      <div class="px-5 sm:px-7 pb-6 flex flex-col gap-4">
+      <div class="px-4 sm:px-7 pb-6 flex flex-col gap-4">
         <div class="flex flex-col lg:flex-row lg:items-center gap-3">
           <!-- Address search -->
           <form id="search-form" class="relative flex-1 flex gap-2" autocomplete="off">
             <input id="search-input" type="text" placeholder="Zoek een adres of plaatsnaam in Nederland…"
-                   class="w-full rounded-md border border-[rgba(28,51,43,0.25)] bg-white px-3 py-2 text-sm focus:border-teal" />
-            <button type="submit" id="search-btn" class="btn-primary rounded-md px-4 py-2 text-sm whitespace-nowrap">Zoek</button>
+                   class="w-full min-h-[44px] rounded-md border border-[rgba(28,51,43,0.25)] bg-white px-3 py-2 text-sm focus:border-teal" />
+            <button type="submit" id="search-btn" class="btn-primary rounded-md px-4 py-2 min-h-[44px] text-sm whitespace-nowrap">Zoek</button>
             <div id="search-results" class="search-results-list hidden absolute left-0 top-[calc(100%+4px)] w-full max-w-md bg-white border border-[rgba(28,51,43,0.15)] rounded-md overflow-hidden z-[500]"></div>
           </form>
           <!-- GPS -->
-          <button id="gps-btn" class="btn-secondary rounded-md px-4 py-2 text-sm whitespace-nowrap flex items-center gap-2">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
+          <button id="gps-btn" class="btn-secondary rounded-md px-4 py-2 min-h-[44px] text-sm whitespace-nowrap flex items-center justify-center gap-2">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="flex-shrink-0"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
             Gebruik mijn locatie
           </button>
         </div>
         <p class="text-xs text-heron">Of klik direct op de kaart om een locatie te kiezen. Standaard staat de kaart op Texel — een klassieke Nederlandse vogelplek.</p>
         <div id="status-banner" class="hidden text-sm rounded-md px-3 py-2"></div>
       </div>
-      <div id="main-map" class="w-full h-[420px] sm:h-[480px] rounded-b-xl"></div>
-      <div class="px-5 sm:px-7 py-3 flex flex-wrap gap-x-5 gap-y-1 text-xs text-heron border-t border-[rgba(28,51,43,0.08)]">
+      <div id="main-map" class="w-full h-[300px] sm:h-[400px] md:h-[480px] rounded-b-xl"></div>
+      <div class="px-4 sm:px-7 py-3 flex flex-wrap gap-x-4 gap-y-1.5 text-xs text-heron border-t border-[rgba(28,51,43,0.08)]">
         <span class="flex items-center gap-1.5"><span class="inline-block w-3 h-0.5 bg-[#E2672A]"></span>Zonsopkomst-azimut</span>
         <span class="flex items-center gap-1.5"><span class="inline-block w-3 h-0.5" style="background:#B0281A"></span>Zonsondergang-azimut</span>
         <span class="flex items-center gap-1.5"><span class="inline-block w-3 h-0.5 bg-amber-400"></span>Huidige zonpositie</span>
@@ -233,55 +224,25 @@
     ============================================================= -->
     <section class="panel">
       <div class="field-tag">Obs.01 — Weer &amp; getij, 72 uur</div>
-      <div class="px-5 sm:px-7 pb-6 pt-2">
+      <div class="px-4 sm:px-7 pb-6 pt-2">
         <div class="flex items-baseline justify-between flex-wrap gap-2 mb-1">
           <h2 class="font-display text-xl font-semibold">Weer- &amp; getijverwachting</h2>
           <span id="weather-updated" class="text-xs text-heron status-line"></span>
         </div>
         <div id="weather-status" class="text-sm text-heron py-10 text-center">Kies een locatie om de verwachting te laden.</div>
         <div id="tide-note" class="hidden text-xs text-rust-dark bg-rust-light border border-rust/30 rounded-md px-3 py-2 mb-3"></div>
-        <div class="relative" style="height: 380px;">
+        <div class="relative chart-holder">
           <canvas id="weather-chart"></canvas>
         </div>
       </div>
     </section>
 
     <!-- ============================================================
-         PANEL 2 — BIRD SIGHTINGS
+         PANEL 2 — SUN PATH / AZIMUTH
     ============================================================= -->
     <section class="panel">
-      <div class="field-tag">Obs.02 — Waarnemingen binnen 2 km</div>
-      <div class="px-5 sm:px-7 pb-6 pt-2">
-        <div class="flex items-baseline justify-between flex-wrap gap-2 mb-1">
-          <h2 class="font-display text-xl font-semibold">Recente vogelwaarnemingen</h2>
-          <span id="bird-count" class="text-xs text-heron status-line"></span>
-        </div>
-        <div id="bird-status" class="text-sm text-heron py-10 text-center">Kies een locatie om waarnemingen in de buurt te tonen.</div>
-        <div id="bird-fallback-note" class="hidden text-xs text-rust-dark bg-rust-light border border-rust/30 rounded-md px-3 py-2 mb-3"></div>
-        <div id="bird-content" class="hidden grid grid-cols-1 lg:grid-cols-5 gap-5">
-          <div id="bird-map" class="lg:col-span-2 w-full h-[360px] rounded-lg border border-[rgba(28,51,43,0.1)]"></div>
-          <div class="lg:col-span-3 overflow-auto max-h-[360px] border border-[rgba(28,51,43,0.1)] rounded-lg">
-            <table class="bird-table w-full text-sm">
-              <thead class="sticky top-0 bg-[#F1EFE4]">
-                <tr>
-                  <th class="text-left px-3 py-2">Soort</th>
-                  <th class="text-left px-3 py-2">Waargenomen</th>
-                  <th class="text-left px-3 py-2">Route</th>
-                </tr>
-              </thead>
-              <tbody id="bird-table-body" class="divide-y divide-[rgba(28,51,43,0.08)]"></tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- ============================================================
-         PANEL 3 — SUN PATH / AZIMUTH
-    ============================================================= -->
-    <section class="panel">
-      <div class="field-tag">Obs.03 — Zonnebaan &amp; azimut</div>
-      <div class="px-5 sm:px-7 pb-8 pt-2">
+      <div class="field-tag">Obs.02 — Zonnebaan &amp; azimut</div>
+      <div class="px-4 sm:px-7 pb-8 pt-2">
         <div class="flex items-baseline justify-between flex-wrap gap-2 mb-1">
           <h2 class="font-display text-xl font-semibold">Zonsverloop vandaag</h2>
           <span id="sun-updated" class="text-xs text-heron status-line"></span>
@@ -289,16 +250,16 @@
         <div id="sun-status" class="text-sm text-heron py-10 text-center">Kies een locatie om de zonnebaan te tekenen.</div>
         <div id="sun-content" class="hidden grid grid-cols-1 md:grid-cols-[280px_1fr] gap-6 items-center">
           <div class="flex justify-center">
-            <div id="sun-svg-holder" class="w-[260px] h-[260px]"></div>
+            <div id="sun-svg-holder" class="w-full max-w-[260px] aspect-square mx-auto"></div>
           </div>
-          <div class="grid grid-cols-2 sm:grid-cols-4 gap-4" id="sun-stats"></div>
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4" id="sun-stats"></div>
         </div>
       </div>
     </section>
 
-    <footer class="text-xs text-heron text-center pt-4 pb-2 space-y-1">
-      <p>Bronnen: Open-Meteo (weer &amp; marien), OpenStreetMap Nominatim (geocoding), Waarneming.nl-structuur (vogelwaarnemingen, met voorbeelddata als fallback), SunCalc (zonberekening).</p>
-      <p>Gebouwd als verkennend dashboard — controleer actuele getijden en waarnemingen altijd bij de officiële bron voor navigatie of onderzoek.</p>
+    <footer class="text-xs text-heron text-center pt-4 pb-2 space-y-1 px-2">
+      <p>Bronnen: Open-Meteo (weer &amp; marien), OpenStreetMap Nominatim (geocoding), SunCalc (zonberekening).</p>
+      <p>Gebouwd als verkennend dashboard — controleer actuele getijden altijd bij de officiële bron voor navigatie of onderzoek.</p>
     </footer>
   </main>
 
@@ -316,12 +277,11 @@
        1. Config & constants
        2. Shared state
        3. Small utilities (formatting, geometry)
-       4. Map setup (main + bird map) & custom icons
+       4. Map setup & custom icons
        5. Location acquisition (map click / address search / GPS)
        6. Weather & tide panel
-       7. Bird sightings panel
-       8. Sun path panel (map overlay + polar SVG diagram)
-       9. Bootstrapping
+       7. Sun path panel (map overlay + polar SVG diagram)
+       8. Bootstrapping
   ================================================================= */
 
   // ---------------------------------------------------------------
@@ -333,13 +293,6 @@
   const DAY_ABBR = ['zo', 'ma', 'di', 'wo', 'do', 'vr', 'za'];
   const COMPASS_POINTS = ['N', 'NO', 'O', 'ZO', 'Z', 'ZW', 'W', 'NW'];
 
-  const BIRD_SPECIES_POOL = [
-    'Kievit', 'Grutto', 'Scholekster', 'Aalscholver', 'Blauwe Reiger', 'Grote Zilverreiger',
-    'Bergeend', 'Wilde Eend', 'Kluut', 'Tureluur', 'IJsvogel', 'Buizerd', 'Torenvalk',
-    'Kokmeeuw', 'Zilvermeeuw', 'Lepelaar', 'Smient', 'Krakeend', 'Meerkoet', 'Fuut',
-    'Wulp', 'Bontbekplevier', 'Steenloper', 'Rotgans', 'Bruine Kiekendief'
-  ];
-
   // ---------------------------------------------------------------
   // 2. SHARED STATE
   // ---------------------------------------------------------------
@@ -350,8 +303,6 @@
     mainMap: null,
     mainMarker: null,
     sunLayerGroup: null,
-    birdMap: null,
-    birdLayerGroup: null,
     weatherChart: null,
     sunTickInterval: null,
   };
@@ -442,18 +393,10 @@
     });
   }
 
-  function buildBirdIcon() {
-    return L.divIcon({
-      className: '',
-      html: `<div style="width:14px;height:14px;border-radius:50% 50% 50% 0;transform:rotate(45deg);background:#E2672A;border:2px solid #FBFAF4;box-shadow:0 1px 3px rgba(0,0,0,0.4);"></div>`,
-      iconSize: [14, 14],
-      iconAnchor: [7, 14],
-    });
-  }
-
   function initMaps() {
-    // Main interactive map, centered on the Netherlands.
-    state.mainMap = L.map('main-map', { scrollWheelZoom: true }).setView(NL_CENTER, 7);
+    // Main interactive map, centered on the Netherlands. Touch (tap/drag/pinch) works out
+    // of the box via Leaflet's default handlers, so this is usable on phones with no extra setup.
+    state.mainMap = L.map('main-map', { scrollWheelZoom: true, tap: true }).setView(NL_CENTER, 7);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '&copy; OpenStreetMap-bijdragers',
       maxZoom: 19,
@@ -464,14 +407,6 @@
     state.mainMap.on('click', (e) => {
       onLocationSelected(e.latlng.lat, e.latlng.lng, null);
     });
-
-    // Secondary map for bird sightings (created once, reused).
-    state.birdMap = L.map('bird-map', { scrollWheelZoom: false });
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '&copy; OpenStreetMap-bijdragers',
-      maxZoom: 19,
-    }).addTo(state.birdMap);
-    state.birdLayerGroup = L.layerGroup().addTo(state.birdMap);
   }
 
   // ---------------------------------------------------------------
@@ -498,9 +433,8 @@
     // If we only have coordinates (map click / GPS), try to resolve a friendly name in the background.
     if (!label) reverseGeocode(lat, lon);
 
-    // Kick off all three dynamic panels in parallel; each handles its own errors.
+    // Kick off both dynamic panels in parallel; each handles its own errors.
     fetchWeatherAndTide(lat, lon);
-    fetchBirdSightings(lat, lon);
     updateSunPath(lat, lon, true);
   }
 
@@ -827,151 +761,7 @@
   }
 
   // ---------------------------------------------------------------
-  // 7. BIRD SIGHTINGS PANEL
-  // ---------------------------------------------------------------
-
-  async function fetchBirdSightings(lat, lon) {
-    const statusEl = document.getElementById('bird-status');
-    const contentEl = document.getElementById('bird-content');
-    const fallbackNoteEl = document.getElementById('bird-fallback-note');
-    const countEl = document.getElementById('bird-count');
-
-    statusEl.textContent = 'Waarnemingen laden…';
-    statusEl.classList.remove('hidden');
-    contentEl.classList.add('hidden');
-    fallbackNoteEl.classList.add('hidden');
-
-    const endDate = new Date().toISOString().slice(0, 10);
-    const url =
-      `https://waarneming.nl/fieldwork/observations/explore/?end_date=${endDate}` +
-      `&exclude_own=true&point=${lat},${lon}&distance=2&species_group=1&rarity=0`;
-
-    let observations = [];
-    let usedFallback = false;
-
-    try {
-      const res = await fetch(url, { headers: { Accept: 'application/json' } });
-      if (!res.ok) throw new Error('Waarneming.nl antwoordde met status ' + res.status);
-      const data = await res.json();
-      observations = normalizeObservations(data);
-      if (observations.length === 0) throw new Error('Lege of onherkenbare respons.');
-    } catch (err) {
-      // Waarneming.nl's explore endpoint is built for their own front-end and typically
-      // blocks cross-origin browser requests (no CORS headers) or requires a session —
-      // a production deployment would route this through a small server-side proxy.
-      // We fail gracefully here with clearly-labeled sample data so the panel still works end to end.
-      console.warn('Live waarneming.nl-verzoek mislukt, val terug op voorbeelddata:', err);
-      observations = generateSampleObservations(lat, lon);
-      usedFallback = true;
-    }
-
-    renderBirdPanel(lat, lon, observations, usedFallback);
-    statusEl.classList.add('hidden');
-    contentEl.classList.remove('hidden');
-    countEl.textContent = `${observations.length} waarneming${observations.length === 1 ? '' : 'en'} binnen 2 km`;
-    if (usedFallback) {
-      fallbackNoteEl.textContent = 'Waarneming.nl kon niet rechtstreeks vanuit de browser worden bevraagd (CORS/sessie-beperking van hun verkenner-API), dus dit zijn representatieve voorbeeldwaarnemingen. Koppel een server-side proxy voor live data.';
-      fallbackNoteEl.classList.remove('hidden');
-    }
-  }
-
-  /** Best-effort normalization across a few plausible Waarneming.nl-style response shapes. */
-  function normalizeObservations(data) {
-    const rawList = data.results || data.features || (Array.isArray(data) ? data : []);
-    const out = [];
-    for (const o of rawList) {
-      const name =
-        o?.species?.name?.nl ||
-        o?.species_detail?.name ||
-        o?.species_name ||
-        o?.properties?.species_name ||
-        o?.name;
-      const lat = o?.point?.coordinates?.[1] ?? o?.location?.lat ?? o?.lat ?? o?.geometry?.coordinates?.[1];
-      const lon = o?.point?.coordinates?.[0] ?? o?.location?.lon ?? o?.lon ?? o?.geometry?.coordinates?.[0];
-      const date = o?.date || o?.observed_on || o?.properties?.date;
-      const time = o?.time || o?.properties?.time || '';
-      if (name && typeof lat === 'number' && typeof lon === 'number') {
-        out.push({ name, lat, lon, date, time });
-      }
-    }
-    return out;
-  }
-
-  /** Generates clearly-labeled, plausible sample sightings scattered within ~2km of the point. */
-  function generateSampleObservations(lat, lon, count) {
-    const n = count || 8 + Math.floor(Math.random() * 6);
-    const out = [];
-    const usedSpecies = new Set();
-    for (let i = 0; i < n; i++) {
-      let species;
-      do {
-        species = BIRD_SPECIES_POOL[Math.floor(Math.random() * BIRD_SPECIES_POOL.length)];
-      } while (usedSpecies.has(species) && usedSpecies.size < BIRD_SPECIES_POOL.length);
-      usedSpecies.add(species);
-
-      // Random offset within ~2km (rough degree conversion).
-      const distKm = Math.random() * 1.9;
-      const bearing = Math.random() * 360;
-      const [oLat, oLon] = destinationPoint(lat, lon, bearing, distKm);
-
-      const hoursAgo = Math.floor(Math.random() * 68);
-      const seenAt = new Date(Date.now() - hoursAgo * 3600 * 1000);
-
-      out.push({
-        name: species,
-        lat: oLat,
-        lon: oLon,
-        date: seenAt.toISOString().slice(0, 10),
-        time: formatTime(seenAt),
-      });
-    }
-    return out;
-  }
-
-  function renderBirdPanel(centerLat, centerLon, observations, usedFallback) {
-    // Sort alphabetically by Dutch species name.
-    const sorted = [...observations].sort((a, b) => a.name.localeCompare(b.name, 'nl'));
-
-    // --- Map ---
-    state.birdLayerGroup.clearLayers();
-    state.birdMap.setView([centerLat, centerLon], 13);
-    L.marker([centerLat, centerLon], { icon: buildLocationIcon() })
-      .addTo(state.birdLayerGroup)
-      .bindPopup('Gekozen locatie');
-    L.circle([centerLat, centerLon], { radius: 2000, color: '#1E7F78', weight: 1, fillOpacity: 0.04 }).addTo(state.birdLayerGroup);
-
-    sorted.forEach((obs) => {
-      L.marker([obs.lat, obs.lon], { icon: buildBirdIcon() })
-        .addTo(state.birdLayerGroup)
-        .bindPopup(`<strong>${escapeHtml(obs.name)}</strong><br>${escapeHtml(obs.date || '')} ${escapeHtml(obs.time || '')}`);
-    });
-    // Leaflet maps inside initially-hidden containers need a size recalculation once visible.
-    setTimeout(() => state.birdMap.invalidateSize(), 50);
-
-    // --- Table ---
-    const tbody = document.getElementById('bird-table-body');
-    tbody.innerHTML = sorted
-      .map((obs) => {
-        const mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${obs.lat},${obs.lon}&travelmode=driving`;
-        return `<tr class="fade-in">
-          <td class="px-3 py-2 font-medium">${escapeHtml(obs.name)}</td>
-          <td class="px-3 py-2 text-heron status-line">${escapeHtml(obs.date || '')} ${escapeHtml(obs.time || '')}</td>
-          <td class="px-3 py-2">
-            <a href="${mapsUrl}" target="_blank" rel="noopener noreferrer" class="btn-route inline-flex items-center gap-1 rounded px-2.5 py-1 text-xs">
-              Route ↗
-            </a>
-          </td>
-        </tr>`;
-      })
-      .join('') || `<tr><td colspan="3" class="px-3 py-6 text-center text-heron">Geen waarnemingen gevonden binnen 2 km.</td></tr>`;
-  }
-
-  function escapeHtml(str) {
-    return String(str).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  }
-
-  // ---------------------------------------------------------------
-  // 8. SUN PATH / AZIMUTH PANEL
+  // 7. SUN PATH / AZIMUTH PANEL
   // ---------------------------------------------------------------
 
   function updateSunPath(lat, lon, isFreshLocation) {
@@ -1046,7 +836,7 @@
       return [cx + r * Math.sin(rad), cy - r * Math.cos(rad)];
     };
 
-    let svg = `<svg viewBox="0 0 ${size} ${size}" width="${size}" height="${size}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Zonnebaan-diagram">`;
+    let svg = `<svg viewBox="0 0 ${size} ${size}" width="100%" height="100%" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Zonnebaan-diagram">`;
 
     // Altitude rings (0/30/60/90 deg).
     [0, 30, 60, 90].forEach((alt) => {
@@ -1126,7 +916,7 @@
   }
 
   // ---------------------------------------------------------------
-  // 9. BOOTSTRAPPING
+  // 8. BOOTSTRAPPING
   // ---------------------------------------------------------------
   document.addEventListener('DOMContentLoaded', () => {
     initMaps();
