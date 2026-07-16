@@ -1,0 +1,1108 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Veldkompas — Vogel- en veldweer dashboard</title>
+
+<!-- Fonts: Fraunces (display, characterful serif), Inter (body/UI), JetBrains Mono (data/utility) -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+<!-- Leaflet -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+<!-- Tailwind (utility layout) -->
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          mist:   '#E9EFE7',
+          paper:  '#FBFAF4',
+          marsh:  '#1C332B',
+          ink:    '#1C332B',
+          heron:  '#5B6B63',
+          reed:   '#8A7355',
+          teal:   { DEFAULT: '#1E7F78', dark: '#12504C', light: '#DCEDEA' },
+          rust:   { DEFAULT: '#E2672A', dark: '#B84E1B', light: '#FBE6DA' },
+        },
+        fontFamily: {
+          display: ['"Fraunces"', 'serif'],
+          body: ['"Inter"', 'sans-serif'],
+          mono: ['"JetBrains Mono"', 'monospace'],
+        },
+      },
+    },
+  };
+</script>
+
+<style>
+  /* ---------------------------------------------------------------
+     Base atmosphere. Cool marsh-green off-white rather than the usual
+     warm cream; a deep reed-green replaces near-black; the two accents
+     are drawn from the kingfisher (ijsvogel) — teal back, rust belly.
+  --------------------------------------------------------------- */
+  :root {
+    --line: rgba(28, 51, 43, 0.14);
+  }
+  html, body { height: 100%; }
+  body {
+    background-color: #E9EFE7;
+    background-image:
+      radial-gradient(circle at 100% 0%, rgba(30,127,120,0.06), transparent 45%),
+      radial-gradient(circle at 0% 100%, rgba(226,103,42,0.06), transparent 40%);
+    font-family: 'Inter', sans-serif;
+    color: #1C332B;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    * { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
+  }
+
+  /* Field-guide "specimen tag" — the signature structural device used to
+     label every data panel, echoing herbarium / museum collection tags. */
+  .field-tag {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    top: 14px;
+    margin-left: 1.25rem;
+    transform: rotate(-1.4deg);
+    background: #FBFAF4;
+    border: 1px solid rgba(28,51,43,0.25);
+    padding: 0.3rem 0.7rem 0.3rem 0.6rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.68rem;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: #12504C;
+    box-shadow: 0 2px 5px rgba(28,51,43,0.08);
+    z-index: 10;
+  }
+  .field-tag::before {
+    content: '';
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: rgba(28,51,43,0.3);
+    box-shadow: inset 0 0 0 1px rgba(28,51,43,0.15);
+    flex-shrink: 0;
+  }
+  .panel {
+    background: #FBFAF4;
+    border: 1px solid rgba(28,51,43,0.12);
+    border-radius: 0.75rem;
+    padding-top: 1.75rem;
+    box-shadow: 0 1px 2px rgba(28,51,43,0.05);
+  }
+
+  .btn-primary {
+    background: #1E7F78;
+    color: #FBFAF4;
+    font-weight: 600;
+    transition: background-color 0.15s ease, transform 0.1s ease;
+  }
+  .btn-primary:hover { background: #12504C; }
+  .btn-primary:active { transform: translateY(1px); }
+  .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .btn-secondary {
+    background: transparent;
+    color: #1C332B;
+    border: 1px solid rgba(28,51,43,0.3);
+    font-weight: 500;
+    transition: border-color 0.15s ease, background-color 0.15s ease;
+  }
+  .btn-secondary:hover { background: rgba(28,51,43,0.05); border-color: #1C332B; }
+  .btn-secondary.is-active { background: #1E7F78; color: #FBFAF4; border-color: #1E7F78; }
+
+  .day-btn {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.72rem;
+    padding: 0.4rem 0.7rem;
+    min-height: 36px;
+    border-radius: 0.4rem;
+    border: 1px solid rgba(28,51,43,0.25);
+    color: #5B6B63;
+    background: transparent;
+    transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  }
+  .day-btn:hover { background: rgba(28,51,43,0.06); }
+  .day-btn.is-active { background: #1E7F78; color: #FBFAF4; border-color: #1E7F78; }
+
+  /* Orientation-follow mode: the map element is temporarily oversized (via inline
+     styles set in JS) and CSS-rotated so it always covers the cropped, non-rotating
+     viewport around it. Leaflet's own controls would rotate along with it, which
+     reads as broken, so they're hidden while this mode is active. */
+  #main-map.is-rotating { transition: transform 0.1s linear; }
+  #main-map.is-rotating .leaflet-control-container { visibility: hidden; }
+
+  input[type="text"]:focus, button:focus-visible {
+    outline: 2px solid #1E7F78;
+    outline-offset: 2px;
+  }
+
+  #main-map { z-index: 0; }
+  .leaflet-container { font-family: 'Inter', sans-serif; background: #d9e4dc; }
+
+  .sun-marker { filter: drop-shadow(0 0 4px rgba(226,103,42,0.7)); }
+  @keyframes pulse-sun {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.15); }
+  }
+  .sun-marker-icon { animation: pulse-sun 3s ease-in-out infinite; }
+
+  .status-line {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.75rem;
+  }
+
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-thumb { background: rgba(28,51,43,0.25); border-radius: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+
+  .search-results-list {
+    box-shadow: 0 8px 20px rgba(28,51,43,0.15);
+  }
+
+  /* Weather chart: shorter on phones so it doesn't force excessive scrolling, taller on larger screens for readability. */
+  .chart-holder { height: 280px; }
+  @media (min-width: 640px) { .chart-holder { height: 340px; } }
+  @media (min-width: 1024px) { .chart-holder { height: 380px; } }
+
+  /* Prevent any stray horizontal scroll on narrow viewports. */
+  body { overflow-x: hidden; }
+</style>
+</head>
+
+<body class="min-h-screen pb-16">
+
+  <!-- ============================================================
+       HERO / HEADER
+       Dark reed-green band; compass-and-starling signature mark;
+       live "specimen tag" showing the currently selected coordinates.
+  ============================================================= -->
+  <header class="bg-[#1C332B] text-[#FBFAF4]">
+    <div class="max-w-7xl mx-auto px-4 sm:px-8 py-6 sm:py-8 flex flex-col sm:flex-row sm:items-end sm:justify-between gap-5 sm:gap-6">
+      <div class="flex items-start gap-4">
+        <!-- Veldkompas signature icon: a compass rose with a starling (spreeuw) in flight at its center -->
+        <svg width="52" height="52" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" class="flex-shrink-0 mt-1" aria-label="Veldkompas logo: kompasroos met een spreeuw" role="img">
+          <circle cx="32" cy="32" r="27" stroke="#1E7F78" stroke-width="1.6" fill="#12504C" fill-opacity="0.25"/>
+          <circle cx="32" cy="32" r="20.5" stroke="#1E7F78" stroke-width="1" stroke-opacity="0.4" fill="none"/>
+          <line x1="32" y1="4"  x2="32" y2="9"  stroke="#E2672A" stroke-width="2" stroke-linecap="round"/>
+          <line x1="32" y1="55" x2="32" y2="60" stroke="#DCEDEA" stroke-width="1.6" stroke-linecap="round"/>
+          <line x1="4"  y1="32" x2="9"  y2="32" stroke="#DCEDEA" stroke-width="1.6" stroke-linecap="round"/>
+          <line x1="55" y1="32" x2="60" y2="32" stroke="#DCEDEA" stroke-width="1.6" stroke-linecap="round"/>
+          <text x="32" y="16" text-anchor="middle" font-size="7" font-family="'JetBrains Mono', monospace" fill="#E2672A" font-weight="700">N</text>
+          <!-- Starling silhouette, mid-flight -->
+          <path d="M32 24 C 27 26, 19 27, 12 34 C 18 32, 25 33, 30 37 C 25 39, 17 44, 12 50 C 21 46, 28 42, 32 40 C 36 42, 43 46, 52 50 C 47 44, 39 39, 34 37 C 39 33, 46 32, 52 34 C 45 27, 37 26, 32 24 Z"
+                fill="#1C332B"/>
+          <circle cx="27" cy="33" r="1" fill="#FBFAF4" fill-opacity="0.65"/>
+          <circle cx="37" cy="33" r="1" fill="#FBFAF4" fill-opacity="0.65"/>
+          <circle cx="32" cy="38" r="1.1" fill="#E2672A" fill-opacity="0.85"/>
+        </svg>
+        <div>
+          <h1 class="font-display text-2xl sm:text-3xl md:text-4xl font-semibold tracking-tight">Veldkompas</h1>
+          <p class="text-[#9FC9C5] text-sm sm:text-base mt-1 max-w-md">Weer, getij en zonnebaan voor elke plek in Nederland — kies een locatie om te beginnen.</p>
+        </div>
+      </div>
+      <div id="location-tag" class="field-tag !top-0 !ml-0 self-start sm:self-auto whitespace-normal break-words max-w-full">
+        geen locatie gekozen
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-7xl mx-auto px-4 sm:px-8 mt-6 sm:mt-8 space-y-6 sm:space-y-10">
+
+    <!-- ============================================================
+         LOCATION CONTROLS + MAIN MAP
+    ============================================================= -->
+    <section class="panel !pt-6 relative">
+      <div class="px-4 sm:px-7 pb-6 flex flex-col gap-4">
+        <div class="flex flex-col lg:flex-row lg:items-center gap-3">
+          <!-- Address search -->
+          <form id="search-form" class="relative flex-1 flex gap-2" autocomplete="off">
+            <input id="search-input" type="text" placeholder="Zoek een adres of plaatsnaam in Nederland…"
+                   class="w-full min-h-[44px] rounded-md border border-[rgba(28,51,43,0.25)] bg-white px-3 py-2 text-sm focus:border-teal" />
+            <button type="submit" id="search-btn" class="btn-primary rounded-md px-4 py-2 min-h-[44px] text-sm whitespace-nowrap">Zoek</button>
+            <div id="search-results" class="search-results-list hidden absolute left-0 top-[calc(100%+4px)] w-full max-w-md bg-white border border-[rgba(28,51,43,0.15)] rounded-md overflow-hidden z-[500]"></div>
+          </form>
+          <!-- GPS -->
+          <button id="gps-btn" class="btn-secondary rounded-md px-4 py-2 min-h-[44px] text-sm whitespace-nowrap flex items-center justify-center gap-2">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="flex-shrink-0"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
+            Gebruik mijn locatie
+          </button>
+          <!-- Orientation follow (mobile compass/gyroscope) -->
+          <button id="orientation-btn" class="btn-secondary rounded-md px-4 py-2 min-h-[44px] text-sm whitespace-nowrap flex items-center justify-center gap-2" aria-pressed="false">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="flex-shrink-0"><circle cx="12" cy="12" r="9"/><path d="M12 7l2.2 4.8L12 17l-2.2-5.2z"/></svg>
+            Gebruiker
+          </button>
+        </div>
+        <p class="text-xs text-heron">Of klik direct op de kaart om een locatie te kiezen. Standaard staat de kaart op Texel — een klassieke Nederlandse vogelplek. Op je telefoon laat “Gebruiker” de kaart meedraaien met je kijkrichting (kompas/gyroscoop).</p>
+        <div id="status-banner" class="hidden text-sm rounded-md px-3 py-2"></div>
+      </div>
+      <div id="main-map-viewport" class="relative w-full h-[300px] sm:h-[400px] md:h-[480px] overflow-hidden rounded-b-xl">
+        <div id="main-map" class="absolute inset-0 w-full h-full"></div>
+        <div id="orientation-hint" class="hidden absolute bottom-3 left-1/2 -translate-x-1/2 bg-[#1C332B] text-[#FBFAF4] text-xs px-3 py-1.5 rounded-full shadow-md z-[1000] whitespace-nowrap pointer-events-none">
+          🧭 Volgt je kijkrichting — tik op “Gebruiker” om te stoppen
+        </div>
+      </div>
+      <div class="px-4 sm:px-7 py-3 flex flex-wrap gap-x-4 gap-y-1.5 text-xs text-heron border-t border-[rgba(28,51,43,0.08)]">
+        <span class="flex items-center gap-1.5"><span class="inline-block w-3 h-0.5" style="background:#2E8B57"></span>Zonsopkomst</span>
+        <span class="flex items-center gap-1.5"><span class="inline-block w-3 h-0.5" style="background:#2563AC"></span>Zonsondergang</span>
+        <span class="flex items-center gap-1.5"><span class="inline-block w-3 h-0.5 bg-amber-400"></span>Huidige zonpositie</span>
+        <span class="flex items-center gap-1.5"><span class="inline-block w-3 h-0.5 border-t border-dashed border-[rgba(28,51,43,0.4)]"></span>Zonnebaan</span>
+      </div>
+    </section>
+
+    <!-- ============================================================
+         PANEL 1 — WEATHER + TIDE CHART
+    ============================================================= -->
+    <section class="panel">
+      <div class="field-tag">Obs.01 — Weer &amp; getij</div>
+      <div class="px-4 sm:px-7 pb-6 pt-2">
+        <div class="flex items-center justify-between flex-wrap gap-2 mb-1">
+          <h2 class="font-display text-xl font-semibold">Weer- &amp; getijverwachting</h2>
+          <div class="flex items-center gap-3 flex-wrap">
+            <div id="day-range-selector" class="flex items-center gap-1.5" role="group" aria-label="Aantal dagen">
+              <button type="button" class="day-btn" data-days="1">1 dag</button>
+              <button type="button" class="day-btn" data-days="2">2 dagen</button>
+              <button type="button" class="day-btn is-active" data-days="3">3 dagen</button>
+            </div>
+            <span id="weather-updated" class="text-xs text-heron status-line"></span>
+          </div>
+        </div>
+        <div id="weather-status" class="text-sm text-heron py-10 text-center">Kies een locatie om de verwachting te laden.</div>
+        <div id="tide-note" class="hidden text-xs text-rust-dark bg-rust-light border border-rust/30 rounded-md px-3 py-2 mb-3"></div>
+        <div class="relative chart-holder">
+          <canvas id="weather-chart"></canvas>
+        </div>
+      </div>
+    </section>
+
+    <footer class="text-xs text-heron text-center pt-4 pb-2 space-y-1 px-2">
+      <p>Bronnen: Open-Meteo (weer &amp; marien), OpenStreetMap Nominatim (geocoding), SunCalc (zonberekening).</p>
+      <p>Gebouwd als verkennend dashboard — controleer actuele getijden altijd bij de officiële bron voor navigatie of onderzoek.</p>
+    </footer>
+  </main>
+
+  <!-- ============================================================
+       LIBRARIES
+  ============================================================= -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/suncalc@1.9.0/suncalc.js"></script>
+
+  <script>
+  /* =================================================================
+     VELDKOMPAS — application script
+     Organized as:
+       1. Config & constants
+       2. Shared state
+       3. Small utilities (formatting, geometry)
+       4. Map setup & custom icons
+       5. Location acquisition (map click / address search / GPS / orientation-follow)
+       6. Weather & tide panel (with day-range selector)
+       7. Sun path / azimuth — drawn on the main map
+       8. Bootstrapping
+  ================================================================= */
+
+  // ---------------------------------------------------------------
+  // 1. CONFIG & CONSTANTS
+  // ---------------------------------------------------------------
+  const NL_CENTER = [52.15, 5.29];
+  const DEFAULT_LOCATION = { lat: 53.0500, lon: 4.7960, name: 'Texel, Noord-Holland' }; // known birding hotspot, coastal (has tide data)
+
+  const DAY_ABBR = ['zo', 'ma', 'di', 'wo', 'do', 'vr', 'za'];
+
+  // Shared palette: sunrise/sunset colors are reused identically on the map overlay
+  // and (for sunrise) the tide line, per the requested color scheme.
+  const COLORS = {
+    sunrise: '#2E8B57', // green
+    sunset: '#2563AC', // blue
+    current: '#F0A93C', // amber — current sun position
+    temp: '#E2672A', // orange
+    wind: '#111111', // black
+    rain: '#3E7CB1', // blue
+    cloud: '#B7AE9A', // tan/grey
+    tide: '#2E8B57', // green
+  };
+
+  // ---------------------------------------------------------------
+  // 2. SHARED STATE
+  // ---------------------------------------------------------------
+  const state = {
+    lat: null,
+    lon: null,
+    locationName: '',
+    mainMap: null,
+    mainMarker: null,
+    sunLayerGroup: null,
+    weatherChart: null,
+    weatherRaw: null, // cached 72h fetch: { times, temps, rainProb, wind, cloud, tideSeries } — re-sliced locally when the day range changes
+    selectedDays: 3,
+    sunTickInterval: null,
+    followingOrientation: false,
+    orientationHandler: null,
+  };
+
+  // ---------------------------------------------------------------
+  // 3. UTILITIES
+  // ---------------------------------------------------------------
+
+  /** Show a transient status/error banner above the map. */
+  function showBanner(message, tone = 'info') {
+    const el = document.getElementById('status-banner');
+    const tones = {
+      info: 'bg-teal-light text-teal-dark border border-teal/30',
+      error: 'bg-rust-light text-rust-dark border border-rust/30',
+    };
+    el.className = 'text-sm rounded-md px-3 py-2 ' + (tones[tone] || tones.info);
+    el.textContent = message;
+    el.classList.remove('hidden');
+  }
+  function hideBanner() {
+    document.getElementById('status-banner').classList.add('hidden');
+  }
+
+  /** Whole-hour number for the sun path markers, shown as 1-24 (midnight displayed as 24, never 0). */
+  function hourNumberLabel(date) {
+    const h = date.getHours();
+    return h === 0 ? 24 : h;
+  }
+
+  /** Format a Date as HH:mm (24h, local time). */
+  function formatTime(date) {
+    if (!date || isNaN(date.getTime())) return '—';
+    return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+  }
+
+  /** Great-circle destination point given a start coord, bearing (deg) and distance (km). */
+  function destinationPoint(lat, lon, bearingDeg, distanceKm) {
+    const R = 6371;
+    const brng = (bearingDeg * Math.PI) / 180;
+    const lat1 = (lat * Math.PI) / 180;
+    const lon1 = (lon * Math.PI) / 180;
+    const lat2 = Math.asin(
+      Math.sin(lat1) * Math.cos(distanceKm / R) + Math.cos(lat1) * Math.sin(distanceKm / R) * Math.cos(brng)
+    );
+    const lon2 =
+      lon1 +
+      Math.atan2(
+        Math.sin(brng) * Math.sin(distanceKm / R) * Math.cos(lat1),
+        Math.cos(distanceKm / R) - Math.sin(lat1) * Math.sin(lat2)
+      );
+    return [(lat2 * 180) / Math.PI, (lon2 * 180) / Math.PI];
+  }
+
+  /** Convert SunCalc's azimuth (radians, 0 = south, clockwise toward west) to a compass bearing (0-360, 0 = north). */
+  function azimuthToCompassBearing(azimuthRad) {
+    const deg = (azimuthRad * 180) / Math.PI + 180;
+    return (deg + 360) % 360;
+  }
+
+  function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+
+  // ---------------------------------------------------------------
+  // 4. MAP SETUP & CUSTOM ICONS
+  // ---------------------------------------------------------------
+
+  function buildLocationIcon() {
+    return L.divIcon({
+      className: '',
+      html: `<div style="width:22px;height:22px;border-radius:50%;background:#1E7F78;border:3px solid #FBFAF4;box-shadow:0 0 0 2px rgba(28,51,43,0.35), 0 2px 6px rgba(0,0,0,0.35);"></div>`,
+      iconSize: [22, 22],
+      iconAnchor: [11, 11],
+    });
+  }
+
+  function buildSunIcon(aboveHorizon) {
+    const glyph = aboveHorizon ? '☀' : '🌙';
+    return L.divIcon({
+      className: 'sun-marker',
+      html: `<div class="sun-marker-icon" style="font-size:20px; line-height:1;">${glyph}</div>`,
+      iconSize: [20, 20],
+      iconAnchor: [10, 10],
+    });
+  }
+
+  function buildHourIcon(hourNumber) {
+    return L.divIcon({
+      className: '',
+      html: `<div style="font-family:'JetBrains Mono',monospace;font-size:9px;font-weight:700;color:#1C332B;background:rgba(251,250,244,0.88);border-radius:50%;width:16px;height:16px;display:flex;align-items:center;justify-content:center;box-shadow:0 1px 2px rgba(0,0,0,0.25);">${hourNumber}</div>`,
+      iconSize: [16, 16],
+      iconAnchor: [8, 8],
+    });
+  }
+
+  function initMaps() {
+    // Main interactive map, centered on the Netherlands. Touch (tap/drag/pinch) works out
+    // of the box via Leaflet's default handlers, so this is usable on phones with no extra setup.
+    state.mainMap = L.map('main-map', { scrollWheelZoom: true, tap: true }).setView(NL_CENTER, 7);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap-bijdragers',
+      maxZoom: 19,
+    }).addTo(state.mainMap);
+
+    state.sunLayerGroup = L.layerGroup().addTo(state.mainMap);
+
+    state.mainMap.on('click', (e) => {
+      if (state.followingOrientation) {
+        // While the map is visually rotated via CSS, Leaflet's own hit-testing is not
+        // rotation-aware, so a tap would resolve to the wrong coordinates. Simplest
+        // correct behaviour: pause location-picking until the user turns it off again.
+        showBanner('Zet "Gebruiker" uit om een nieuwe locatie op de kaart te kiezen.', 'info');
+        return;
+      }
+      onLocationSelected(e.latlng.lat, e.latlng.lng, null);
+    });
+  }
+
+  // ---------------------------------------------------------------
+  // 5. LOCATION ACQUISITION
+  // ---------------------------------------------------------------
+
+  /** Central entry point: called whenever the user picks a new location, by any method. */
+  async function onLocationSelected(lat, lon, label) {
+    hideBanner();
+    state.lat = lat;
+    state.lon = lon;
+    state.locationName = label || `${lat.toFixed(4)}°, ${lon.toFixed(4)}°`;
+
+    updateLocationTag();
+
+    // Place / move the marker on the main map.
+    if (state.mainMarker) {
+      state.mainMarker.setLatLng([lat, lon]);
+    } else {
+      state.mainMarker = L.marker([lat, lon], { icon: buildLocationIcon() }).addTo(state.mainMap);
+    }
+    state.mainMap.flyTo([lat, lon], Math.max(state.mainMap.getZoom(), 11), { duration: 0.6 });
+
+    // If we only have coordinates (map click / GPS), try to resolve a friendly name in the background.
+    if (!label) reverseGeocode(lat, lon);
+
+    // Kick off both dynamic panels in parallel; each handles its own errors.
+    fetchWeatherAndTide(lat, lon);
+    updateSunPath(lat, lon);
+  }
+
+  function updateLocationTag() {
+    const tag = document.getElementById('location-tag');
+    tag.innerHTML = `📍 ${state.locationName} <span class="opacity-60">·</span> ${state.lat.toFixed(4)}, ${state.lon.toFixed(4)}`;
+  }
+
+  async function reverseGeocode(lat, lon) {
+    try {
+      const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=14&addressdetails=1`;
+      const res = await fetch(url);
+      if (!res.ok) return;
+      const data = await res.json();
+      const a = data.address || {};
+      const place = a.village || a.town || a.city || a.hamlet || a.suburb || a.municipality || data.name;
+      if (place && state.lat === lat && state.lon === lon) {
+        state.locationName = a.state ? `${place}, ${a.state}` : place;
+        updateLocationTag();
+      }
+    } catch (err) {
+      // Silent: reverse geocoding is a nicety, not critical to app function.
+      console.warn('Reverse geocoding mislukt:', err);
+    }
+  }
+
+  /** Address search via Nominatim, scoped to the Netherlands, with a picker for multiple matches. */
+  function initAddressSearch() {
+    const form = document.getElementById('search-form');
+    const input = document.getElementById('search-input');
+    const resultsBox = document.getElementById('search-results');
+
+    function closeResults() {
+      resultsBox.classList.add('hidden');
+      resultsBox.innerHTML = '';
+    }
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const query = input.value.trim();
+      if (!query) return;
+      hideBanner();
+      closeResults();
+      const btn = document.getElementById('search-btn');
+      btn.disabled = true;
+      btn.textContent = 'Zoeken…';
+      try {
+        const url = `https://nominatim.openstreetmap.org/search?format=json&limit=5&countrycodes=nl&addressdetails=1&q=${encodeURIComponent(query)}`;
+        const res = await fetch(url);
+        if (!res.ok) throw new Error('Nominatim antwoordde met status ' + res.status);
+        const matches = await res.json();
+        if (!matches.length) {
+          showBanner(`Geen resultaten voor "${query}" binnen Nederland. Probeer een specifiekere plaatsnaam.`, 'error');
+          return;
+        }
+        if (matches.length === 1) {
+          selectSearchMatch(matches[0]);
+        } else {
+          renderSearchResults(matches);
+        }
+      } catch (err) {
+        console.error(err);
+        showBanner('Adres opzoeken is mislukt. Controleer je verbinding en probeer het opnieuw.', 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Zoek';
+      }
+    });
+
+    function renderSearchResults(matches) {
+      resultsBox.innerHTML = matches
+        .map((m, i) => `<button type="button" data-idx="${i}" class="w-full text-left px-3 py-2 text-sm hover:bg-teal-light border-b border-[rgba(28,51,43,0.08)] last:border-b-0">${m.display_name}</button>`)
+        .join('');
+      resultsBox.classList.remove('hidden');
+      resultsBox.querySelectorAll('button').forEach((btnEl) => {
+        btnEl.addEventListener('click', () => {
+          selectSearchMatch(matches[Number(btnEl.dataset.idx)]);
+          closeResults();
+        });
+      });
+    }
+
+    function selectSearchMatch(match) {
+      const shortName = match.display_name.split(',').slice(0, 2).join(',').trim();
+      input.value = shortName;
+      onLocationSelected(parseFloat(match.lat), parseFloat(match.lon), shortName);
+    }
+
+    document.addEventListener('click', (e) => {
+      if (!form.contains(e.target)) closeResults();
+    });
+  }
+
+  /** GPS location via the browser Geolocation API. */
+  function initGpsButton() {
+    const btn = document.getElementById('gps-btn');
+    btn.addEventListener('click', () => {
+      if (!('geolocation' in navigator)) {
+        showBanner('Geolocatie wordt niet ondersteund door deze browser.', 'error');
+        return;
+      }
+      hideBanner();
+      btn.disabled = true;
+      const originalHtml = btn.innerHTML;
+      btn.textContent = 'Locatie bepalen…';
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          btn.disabled = false;
+          btn.innerHTML = originalHtml;
+          onLocationSelected(pos.coords.latitude, pos.coords.longitude, null);
+        },
+        (err) => {
+          btn.disabled = false;
+          btn.innerHTML = originalHtml;
+          const messages = {
+            1: 'Locatietoegang is geweigerd. Sta locatie toe in je browserinstellingen om deze functie te gebruiken.',
+            2: 'Locatie kon niet worden bepaald. Probeer het opnieuw of kies handmatig een punt op de kaart.',
+            3: 'Het bepalen van je locatie duurde te lang. Probeer het opnieuw.',
+          };
+          showBanner(messages[err.code] || 'Kon je locatie niet bepalen.', 'error');
+        },
+        { enableHighAccuracy: true, timeout: 10000 }
+      );
+    });
+  }
+
+  /**
+   * "Gebruiker" toggle: rotates the map to match the phone's compass heading, using
+   * the Device Orientation API (gyroscope/magnetometer). Leaflet itself has no concept
+   * of map rotation, so this applies a CSS transform to a deliberately oversized map
+   * layer (cropped by an overflow-hidden viewport) so no blank corners appear while
+   * rotated. Because Leaflet's hit-testing isn't rotation-aware, dragging and
+   * click-to-select are paused while this mode is active — the view stays centered
+   * and simply turns in place, similar to "follow" mode in dedicated navigation apps.
+   * Compass-heading accuracy varies a lot by device/OS/browser; some Android phones
+   * need a figure-eight calibration gesture, and desktop browsers have no sensor at all.
+   */
+  function initOrientationButton() {
+    const btn = document.getElementById('orientation-btn');
+    btn.addEventListener('click', () => {
+      if (state.followingOrientation) {
+        disableOrientationMode();
+      } else {
+        enableOrientationMode(btn);
+      }
+    });
+  }
+
+  async function enableOrientationMode(btn) {
+    if (typeof window.DeviceOrientationEvent === 'undefined') {
+      showBanner('Deze functie vereist een apparaat met een kompas/gyroscoop-sensor — op een desktopbrowser is dit niet beschikbaar.', 'error');
+      return;
+    }
+    // iOS 13+ requires an explicit permission prompt, and it must be triggered
+    // directly from a user gesture — this click handler qualifies.
+    if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+      try {
+        const result = await DeviceOrientationEvent.requestPermission();
+        if (result !== 'granted') {
+          showBanner('Toegang tot de oriëntatiesensor is geweigerd. Sta dit toe in je browserinstellingen om de kaart te laten meedraaien.', 'error');
+          return;
+        }
+      } catch (err) {
+        showBanner('Kon geen toestemming vragen voor de oriëntatiesensor op dit toestel.', 'error');
+        return;
+      }
+    }
+
+    state.followingOrientation = true;
+    btn.classList.add('is-active');
+    btn.setAttribute('aria-pressed', 'true');
+    document.getElementById('orientation-hint').classList.remove('hidden');
+    state.mainMap.dragging.disable();
+
+    const mapEl = document.getElementById('main-map');
+    mapEl.style.width = '160%';
+    mapEl.style.height = '160%';
+    mapEl.style.left = '-30%';
+    mapEl.style.top = '-30%';
+    mapEl.classList.add('is-rotating');
+    requestAnimationFrame(() => state.mainMap.invalidateSize({ animate: false }));
+
+    let lastUpdate = 0;
+    state.orientationHandler = (e) => {
+      const now = Date.now();
+      if (now - lastUpdate < 100) return; // throttle to ~10fps — smooth enough, avoids layout thrash
+      let heading = null;
+      if (typeof e.webkitCompassHeading === 'number' && !isNaN(e.webkitCompassHeading)) {
+        heading = e.webkitCompassHeading; // iOS Safari: already a true compass heading, clockwise from north
+      } else if (typeof e.alpha === 'number') {
+        // Android/other browsers: 'alpha' increases counter-clockwise from an arbitrary
+        // (or, when the event is "absolute", roughly north-referenced) start angle —
+        // invert it for a clockwise-from-north heading. Best-effort; not all devices agree.
+        heading = 360 - e.alpha;
+      }
+      if (heading === null || isNaN(heading)) return;
+      lastUpdate = now;
+      heading = (heading + 360) % 360;
+      mapEl.style.transform = `rotate(${-heading}deg)`;
+    };
+    window.addEventListener('deviceorientationabsolute', state.orientationHandler, true);
+    window.addEventListener('deviceorientation', state.orientationHandler, true);
+  }
+
+  function disableOrientationMode() {
+    state.followingOrientation = false;
+    const btn = document.getElementById('orientation-btn');
+    btn.classList.remove('is-active');
+    btn.setAttribute('aria-pressed', 'false');
+    document.getElementById('orientation-hint').classList.add('hidden');
+
+    if (state.orientationHandler) {
+      window.removeEventListener('deviceorientationabsolute', state.orientationHandler, true);
+      window.removeEventListener('deviceorientation', state.orientationHandler, true);
+      state.orientationHandler = null;
+    }
+    state.mainMap.dragging.enable();
+
+    const mapEl = document.getElementById('main-map');
+    mapEl.style.transform = '';
+    mapEl.style.width = '';
+    mapEl.style.height = '';
+    mapEl.style.left = '';
+    mapEl.style.top = '';
+    mapEl.classList.remove('is-rotating');
+    requestAnimationFrame(() => state.mainMap.invalidateSize({ animate: false }));
+  }
+
+  // ---------------------------------------------------------------
+  // 6. WEATHER & TIDE PANEL
+  // ---------------------------------------------------------------
+
+  async function fetchWeatherAndTide(lat, lon) {
+    const statusEl = document.getElementById('weather-status');
+    const tideNoteEl = document.getElementById('tide-note');
+    const updatedEl = document.getElementById('weather-updated');
+    tideNoteEl.classList.add('hidden');
+    statusEl.textContent = 'Verwachting laden…';
+    statusEl.classList.remove('hidden');
+    state.weatherRaw = null;
+
+    const forecastUrl =
+      `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
+      `&hourly=temperature_2m,precipitation_probability,wind_speed_10m,cloud_cover&forecast_days=4&timezone=auto`;
+    const marineUrl =
+      `https://marine-api.open-meteo.com/v1/marine?latitude=${lat}&longitude=${lon}` +
+      `&hourly=sea_level_height_msl&forecast_days=4&timezone=auto`;
+
+    try {
+      const [forecastRes, marineRes] = await Promise.allSettled([fetch(forecastUrl), fetch(marineUrl)]);
+
+      if (forecastRes.status !== 'fulfilled' || !forecastRes.value.ok) {
+        throw new Error('Weerdata kon niet worden opgehaald.');
+      }
+      const forecast = await forecastRes.value.json();
+      const hourly = forecast.hourly;
+
+      // Slice the 72 hours starting from the current local hour, rather than midnight today.
+      const now = new Date();
+      const nowKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}T${String(now.getHours()).padStart(2, '0')}:00`;
+      let startIdx = hourly.time.indexOf(nowKey);
+      if (startIdx === -1) startIdx = 0;
+      const endIdx = Math.min(startIdx + 72, hourly.time.length);
+
+      const timeStrings = hourly.time.slice(startIdx, endIdx);
+      const times = timeStrings.map((t) => new Date(t));
+      const temps = hourly.temperature_2m.slice(startIdx, endIdx);
+      const rainProb = hourly.precipitation_probability.slice(startIdx, endIdx);
+      const wind = hourly.wind_speed_10m.slice(startIdx, endIdx);
+      const cloud = hourly.cloud_cover.slice(startIdx, endIdx);
+
+      // Tide: build a lookup by timestamp so we can gracefully handle a missing/partial marine dataset.
+      let tideByTime = {};
+      let tideAvailable = false;
+      if (marineRes.status === 'fulfilled' && marineRes.value.ok) {
+        try {
+          const marine = await marineRes.value.json();
+          const mHourly = marine.hourly;
+          if (mHourly && mHourly.sea_level_height_msl) {
+            mHourly.time.forEach((t, i) => {
+              const v = mHourly.sea_level_height_msl[i];
+              if (v !== null && v !== undefined) {
+                tideByTime[t] = v;
+                tideAvailable = true;
+              }
+            });
+          }
+        } catch (e) {
+          console.warn('Marien antwoord kon niet worden verwerkt:', e);
+        }
+      }
+
+      const tideSeries = timeStrings.map((t) => (tideByTime[t] !== undefined ? tideByTime[t] : null));
+
+      if (!tideAvailable) {
+        tideNoteEl.textContent = 'Geen getijdedata beschikbaar voor deze locatie — waarschijnlijk ligt hij landinwaarts of buiten het mariene rekenraster. Weer- en windgegevens zijn wel volledig.';
+        tideNoteEl.classList.remove('hidden');
+      }
+
+      state.weatherRaw = { times, temps, rainProb, wind, cloud, tideSeries: tideAvailable ? tideSeries : null };
+      renderWeatherChartFromState();
+      statusEl.classList.add('hidden');
+      updatedEl.textContent = `bijgewerkt ${formatTime(new Date())}`;
+    } catch (err) {
+      console.error(err);
+      statusEl.textContent = 'Kon de weer- en getijverwachting niet laden. Probeer het opnieuw of kies een andere locatie.';
+      statusEl.classList.remove('hidden');
+      updatedEl.textContent = '';
+    }
+  }
+
+  /** 1/2/3-day range buttons above the chart — re-slice the already-fetched 72h cache, no refetch needed. */
+  function initDaySelector() {
+    const buttons = Array.from(document.querySelectorAll('#day-range-selector .day-btn'));
+    buttons.forEach((btn) => {
+      btn.addEventListener('click', () => {
+        state.selectedDays = Number(btn.dataset.days);
+        buttons.forEach((b) => b.classList.toggle('is-active', b === btn));
+        renderWeatherChartFromState();
+      });
+    });
+  }
+
+  /** Slices the cached 72h dataset down to the selected day range and (re)draws the chart. */
+  function renderWeatherChartFromState() {
+    if (!state.weatherRaw) return;
+    const { times, temps, rainProb, wind, cloud, tideSeries } = state.weatherRaw;
+    const hoursToShow = Math.min(state.selectedDays * 24, times.length);
+    renderWeatherChart(
+      times.slice(0, hoursToShow),
+      temps.slice(0, hoursToShow),
+      rainProb.slice(0, hoursToShow),
+      wind.slice(0, hoursToShow),
+      cloud.slice(0, hoursToShow),
+      tideSeries ? tideSeries.slice(0, hoursToShow) : null
+    );
+  }
+
+  function renderWeatherChart(times, temps, rainProb, wind, cloud, tideSeries) {
+    const ctx = document.getElementById('weather-chart').getContext('2d');
+    // Plain hour labels; the ticks callback below adds the day abbreviation underneath.
+    const labels = times.map((t) => String(t.getHours()).padStart(2, '0'));
+
+    const datasets = [
+      {
+        label: 'Temperatuur (°C)',
+        data: temps,
+        borderColor: COLORS.temp,
+        backgroundColor: COLORS.temp,
+        yAxisID: 'yTemp',
+        tension: 0.3,
+        pointRadius: 0,
+        borderWidth: 2,
+      },
+      {
+        label: 'Windsnelheid (km/u)',
+        data: wind,
+        borderColor: COLORS.wind,
+        backgroundColor: COLORS.wind,
+        yAxisID: 'yWind',
+        tension: 0.3,
+        pointRadius: 0,
+        borderWidth: 1.5,
+        borderDash: [2, 3],
+        borderCapStyle: 'round',
+      },
+      {
+        label: 'Neerslagkans (%)',
+        data: rainProb,
+        borderColor: COLORS.rain,
+        backgroundColor: 'rgba(62,124,177,0.12)',
+        yAxisID: 'yPercent',
+        tension: 0.25,
+        pointRadius: 0,
+        borderWidth: 1.5,
+        borderDash: [5, 3],
+        fill: true,
+      },
+      {
+        label: 'Bewolking (%)',
+        data: cloud,
+        borderColor: COLORS.cloud,
+        backgroundColor: COLORS.cloud,
+        yAxisID: 'yPercent',
+        tension: 0.25,
+        pointRadius: 0,
+        borderWidth: 1.5,
+        borderDash: [2, 3],
+      },
+    ];
+
+    if (tideSeries) {
+      datasets.push({
+        label: 'Getijhoogte (m)',
+        data: tideSeries,
+        borderColor: COLORS.tide,
+        backgroundColor: COLORS.tide,
+        yAxisID: 'yTide',
+        tension: 0.35,
+        pointRadius: 0,
+        borderWidth: 2,
+        spanGaps: true,
+      });
+    }
+
+    const scales = {
+      x: {
+        ticks: {
+          autoSkip: false,
+          maxRotation: 0,
+          minRotation: 0,
+          font: { size: 9 },
+          // Two-line tick: hour on top, day abbreviation underneath (only at each day's
+          // first hour, so it reads as a grouping label rather than repeating on every tick).
+          callback: function (value, index) {
+            const d = times[index];
+            if (!d) return '';
+            const hourStr = String(d.getHours()).padStart(2, '0');
+            const dayStr = index === 0 || d.getHours() === 0 ? DAY_ABBR[d.getDay()] : '';
+            return [hourStr, dayStr];
+          },
+        },
+        grid: {
+          color: (ctx2) => {
+            const d = times[ctx2.index];
+            return d && d.getHours() === 0 ? 'rgba(28,51,43,0.22)' : 'rgba(28,51,43,0.06)';
+          },
+        },
+      },
+      yTemp: {
+        position: 'left',
+        title: { display: true, text: '°C', color: COLORS.temp, font: { weight: '600' } },
+        ticks: { color: COLORS.temp },
+        grid: { color: 'rgba(28,51,43,0.06)' },
+      },
+      yWind: {
+        position: 'right',
+        title: { display: true, text: 'km/u', color: COLORS.wind, font: { weight: '600' } },
+        ticks: { color: COLORS.wind },
+        grid: { drawOnChartArea: false },
+      },
+      yPercent: {
+        position: 'right',
+        min: 0,
+        max: 100,
+        offset: true,
+        title: { display: true, text: '%', color: COLORS.rain, font: { weight: '600' } },
+        ticks: { color: COLORS.rain },
+        grid: { drawOnChartArea: false },
+      },
+    };
+
+    if (tideSeries) {
+      scales.yTide = {
+        position: 'left',
+        offset: true,
+        title: { display: true, text: 'm NAP', color: COLORS.tide, font: { weight: '600' } },
+        ticks: { color: COLORS.tide },
+        grid: { drawOnChartArea: false },
+      };
+    }
+
+    if (state.weatherChart) state.weatherChart.destroy();
+    state.weatherChart = new Chart(ctx, {
+      type: 'line',
+      data: { labels, datasets },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { position: 'top', labels: { usePointStyle: true, boxWidth: 8, font: { size: 11 } } },
+          tooltip: { titleFont: { size: 11 }, bodyFont: { size: 11 } },
+        },
+        scales,
+      },
+      plugins: [buildSunLinesPlugin(times)],
+    });
+  }
+
+  /** Draws a vertical sunrise (green) / sunset (blue) line for each day visible in the chart. */
+  function buildSunLinesPlugin(times) {
+    if (!times.length || state.lat === null || state.lon === null) return { id: 'sunLinesPlugin' };
+
+    const markers = [];
+    const seenDays = new Set();
+    times.forEach((t) => {
+      const dayKey = t.toDateString();
+      if (seenDays.has(dayKey)) return;
+      seenDays.add(dayKey);
+      const noon = new Date(t.getFullYear(), t.getMonth(), t.getDate(), 12, 0, 0);
+      const sunTimes = SunCalc.getTimes(noon, state.lat, state.lon);
+      [
+        { time: sunTimes.sunrise, color: COLORS.sunrise, label: 'Zonsopkomst' },
+        { time: sunTimes.sunset, color: COLORS.sunset, label: 'Zonsondergang' },
+      ].forEach((m) => {
+        if (!m.time || isNaN(m.time.getTime())) return;
+        const fracIndex = (m.time.getTime() - times[0].getTime()) / 3600000;
+        if (fracIndex >= 0 && fracIndex <= times.length - 1) markers.push({ ...m, fracIndex });
+      });
+    });
+
+    return {
+      id: 'sunLinesPlugin',
+      afterDatasetsDraw(chart) {
+        if (!markers.length) return;
+        const { ctx, chartArea, scales } = chart;
+        const xScale = scales.x;
+        ctx.save();
+        markers.forEach((m) => {
+          const i0 = Math.floor(m.fracIndex);
+          const i1 = Math.min(i0 + 1, times.length - 1);
+          const p0 = xScale.getPixelForValue(i0);
+          const p1 = xScale.getPixelForValue(i1);
+          const x = p0 + (p1 - p0) * (m.fracIndex - i0);
+
+          ctx.beginPath();
+          ctx.setLineDash([4, 3]);
+          ctx.strokeStyle = m.color;
+          ctx.lineWidth = 1.5;
+          ctx.moveTo(x, chartArea.top);
+          ctx.lineTo(x, chartArea.bottom);
+          ctx.stroke();
+          ctx.setLineDash([]);
+
+          ctx.fillStyle = m.color;
+          ctx.font = '600 9px Inter, sans-serif';
+          const nearRightEdge = x > chartArea.right - 60;
+          ctx.textAlign = nearRightEdge ? 'right' : 'left';
+          ctx.fillText(`${m.label} ${formatTime(m.time)}`, x + (nearRightEdge ? -5 : 5), chartArea.top + 11);
+        });
+        ctx.restore();
+      },
+    };
+  }
+
+  // ---------------------------------------------------------------
+  // 7. SUN PATH / AZIMUTH — drawn directly on the main map
+  // ---------------------------------------------------------------
+
+  function updateSunPath(lat, lon) {
+    if (state.sunTickInterval) {
+      clearInterval(state.sunTickInterval);
+      state.sunTickInterval = null;
+    }
+    drawSunOnMainMap(lat, lon);
+    // Refresh the current-position marker every minute without redrawing the whole arc.
+    state.sunTickInterval = setInterval(() => drawSunOnMainMap(lat, lon), 60000);
+  }
+
+  function drawSunOnMainMap(lat, lon) {
+    const now = new Date();
+    const times = SunCalc.getTimes(now, lat, lon);
+    const currentPos = SunCalc.getPosition(now, lat, lon);
+    const currentAz = azimuthToCompassBearing(currentPos.azimuth);
+    const currentAlt = (currentPos.altitude * 180) / Math.PI;
+    const aboveHorizon = currentAlt > 0;
+    const radiusKm = 0.65;
+
+    state.sunLayerGroup.clearLayers();
+
+    const hasDaylightTimes = times.sunrise && times.sunset && !isNaN(times.sunrise) && !isNaN(times.sunset);
+
+    if (hasDaylightTimes) {
+      const sunriseAz = azimuthToCompassBearing(SunCalc.getPosition(times.sunrise, lat, lon).azimuth);
+      const sunsetAz = azimuthToCompassBearing(SunCalc.getPosition(times.sunset, lat, lon).azimuth);
+
+      // Sunrise / sunset direction lines.
+      L.polyline([[lat, lon], destinationPoint(lat, lon, sunriseAz, radiusKm)], { color: COLORS.sunrise, weight: 2.5, dashArray: '6 4' }).addTo(state.sunLayerGroup);
+      L.polyline([[lat, lon], destinationPoint(lat, lon, sunsetAz, radiusKm)], { color: COLORS.sunset, weight: 2.5, dashArray: '6 4' }).addTo(state.sunLayerGroup);
+
+      // Day arc: the sun's real position (altitude-scaled radius, like a flattened sky
+      // dome) sampled every 15 minutes from sunrise to sunset — so the arc's shape and
+      // the hour markers on it are geometrically consistent with each other.
+      const arcPoints = [];
+      for (let t = new Date(times.sunrise); t <= times.sunset; t = new Date(t.getTime() + 15 * 60000)) {
+        const pos = SunCalc.getPosition(t, lat, lon);
+        const az = azimuthToCompassBearing(pos.azimuth);
+        const alt = (pos.altitude * 180) / Math.PI;
+        const r = radiusKm * clamp(1 - Math.max(alt, 0) / 90, 0.15, 1);
+        arcPoints.push(destinationPoint(lat, lon, az, r));
+      }
+      L.polyline(arcPoints, { color: 'rgba(28,51,43,0.35)', weight: 1.5, dashArray: '2 5' }).addTo(state.sunLayerGroup);
+
+      // Whole-hour markers along the arc, from sunrise to sunset — plain digits 1-24, no minutes.
+      let hourCursor = new Date(times.sunrise);
+      hourCursor.setMinutes(0, 0, 0);
+      if (hourCursor < times.sunrise) hourCursor = new Date(hourCursor.getTime() + 3600000);
+      for (; hourCursor <= times.sunset; hourCursor = new Date(hourCursor.getTime() + 3600000)) {
+        const pos = SunCalc.getPosition(hourCursor, lat, lon);
+        const az = azimuthToCompassBearing(pos.azimuth);
+        const alt = (pos.altitude * 180) / Math.PI;
+        if (alt <= 0) continue;
+        const r = radiusKm * clamp(1 - alt / 90, 0.15, 1);
+        L.marker(destinationPoint(lat, lon, az, r), { icon: buildHourIcon(hourNumberLabel(hourCursor)) }).addTo(state.sunLayerGroup);
+      }
+    }
+
+    // Current sun position: distance toward the center scales with altitude (higher = closer).
+    const altFactor = clamp(1 - Math.max(currentAlt, 0) / 90, 0.25, 1);
+    const currentPoint = destinationPoint(lat, lon, currentAz, radiusKm * altFactor + 0.05);
+    L.polyline([[lat, lon], currentPoint], { color: aboveHorizon ? COLORS.current : 'rgba(28,51,43,0.3)', weight: 2.5 }).addTo(state.sunLayerGroup);
+    L.marker(currentPoint, { icon: buildSunIcon(aboveHorizon) }).addTo(state.sunLayerGroup);
+  }
+
+  // ---------------------------------------------------------------
+  // 8. BOOTSTRAPPING
+  // ---------------------------------------------------------------
+  document.addEventListener('DOMContentLoaded', () => {
+    initMaps();
+    initAddressSearch();
+    initGpsButton();
+    initOrientationButton();
+    initDaySelector();
+    // Populate the dashboard immediately with a sensible default so every panel
+    // demonstrates real, working data before the user makes their own choice.
+    onLocationSelected(DEFAULT_LOCATION.lat, DEFAULT_LOCATION.lon, DEFAULT_LOCATION.name);
+  });
+  </script>
+</body>
+</html>
